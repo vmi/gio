@@ -13,7 +13,8 @@ import (
 
 type editorState struct {
 	input.EditorState
-	compose key.Range
+	compose     key.Range
+	isComposing bool
 }
 
 func (e *editorState) Replace(r key.Range, text string) {

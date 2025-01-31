@@ -28,6 +28,26 @@ type CandidateForm struct {
 	rcArea       Rect
 }
 
+type LogFont struct {
+	LfHeight         int32
+	LfWidth          int32
+	LfEscapement     int32
+	LfOrientation    int32
+	LfWeight         int32
+	LfItalic         byte
+	LfUnderline      byte
+	LfStrikeOut      byte
+	LfCharSet        byte
+	LfOutPrecision   byte
+	LfClipPrecision  byte
+	LfQuality        byte
+	LfPitchAndFamily byte
+	LfFaceName       [32]uint16
+}
+
+type GCS uint
+type HKL uintptr
+
 type Rect struct {
 	Left, Top, Right, Bottom int32
 }
@@ -185,7 +205,14 @@ type PointerInfo struct {
 const (
 	TRUE = 1
 
-	CPS_CANCEL = 0x0004
+	CPS_COMPLETE = 0x0001
+	CPS_CONVERT  = 0x0002
+	CPS_REVERT   = 0x0003
+	CPS_CANCEL   = 0x0004
+
+	LANG_ZH = 0x0004
+	LANG_JA = 0x0011
+	LANG_KO = 0x0012
 
 	CS_HREDRAW     = 0x0002
 	CS_INSERTCHAR  = 0x2000
@@ -197,15 +224,22 @@ const (
 
 	GWL_STYLE = ^(uintptr(16) - 1) // -16
 
-	GCS_COMPSTR       = 0x0008
-	GCS_COMPREADSTR   = 0x0001
-	GCS_CURSORPOS     = 0x0080
-	GCS_DELTASTART    = 0x0100
-	GCS_RESULTREADSTR = 0x0200
-	GCS_RESULTSTR     = 0x0800
+	GCS_COMPREADSTR      = 0x0001
+	GCS_COMPREADATTR     = 0x0002
+	GCS_COMPREADCLAUSE   = 0x0004
+	GCS_COMPSTR          = 0x0008
+	GCS_COMPATTR         = 0x0010
+	GCS_COMPCLAUSE       = 0x0020
+	GCS_CURSORPOS        = 0x0080
+	GCS_DELTASTART       = 0x0100
+	GCS_RESULTREADSTR    = 0x0200
+	GCS_RESULTREADCLAUSE = 0x0400
+	GCS_RESULTSTR        = 0x0800
+	GCS_RESULTCLAUSE     = 0x1000
 
 	CFS_POINT        = 0x0002
 	CFS_CANDIDATEPOS = 0x0040
+	CFS_EXCLUDE      = 0x0080
 
 	HWND_TOPMOST = ^(uint32(1) - 1) // -1
 
@@ -434,6 +468,7 @@ var (
 	_GetClipboardData            = user32.NewProc("GetClipboardData")
 	_GetDC                       = user32.NewProc("GetDC")
 	_GetDpiForWindow             = user32.NewProc("GetDpiForWindow")
+	_GetKeyboardLayout           = user32.NewProc(("GetKeyboardLayout"))
 	_GetKeyState                 = user32.NewProc("GetKeyState")
 	_GetMessage                  = user32.NewProc("GetMessageW")
 	_GetMessageTime              = user32.NewProc("GetMessageTime")
@@ -477,6 +512,12 @@ var (
 	_UnregisterClass             = user32.NewProc("UnregisterClassW")
 	_UpdateWindow                = user32.NewProc("UpdateWindow")
 
+	_GetActiveWindow = user32.NewProc("GetActiveWindow")
+
+	_CreateCaret  = user32.NewProc("CreateCaret")
+	_SetCaretPos  = user32.NewProc("SetCaretPos")
+	_DestroyCaret = user32.NewProc("DestroyCaret")
+
 	shcore            = syscall.NewLazySystemDLL("shcore")
 	_GetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
 
@@ -491,8 +532,34 @@ var (
 	_ImmSetCandidateWindow   = imm32.NewProc("ImmSetCandidateWindow")
 	_ImmSetCompositionWindow = imm32.NewProc("ImmSetCompositionWindow")
 
+	_ImmCreateContext      = imm32.NewProc("ImmCreateContext")
+	_ImmAssociateContext   = imm32.NewProc("ImmAssociateContext")
+	_ImmSetCompositionFont = imm32.NewProc("ImmSetCompositionFontW")
+
 	dwmapi                        = syscall.NewLazySystemDLL("dwmapi")
 	_DwmExtendFrameIntoClientArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
+)
+
+type gcsMapEntry struct {
+	value uint
+	name  string
+}
+
+var (
+	gcsMap = []gcsMapEntry{
+		{GCS_COMPREADSTR, "GCS_COMPREADSTR"},
+		{GCS_COMPREADATTR, "GCS_COMPREADATTR"},
+		{GCS_COMPREADCLAUSE, "GCS_COMPREADCLAUSE"},
+		{GCS_COMPSTR, "GCS_COMPSTR"},
+		{GCS_COMPATTR, "GCS_COMPATTR"},
+		{GCS_COMPCLAUSE, "GCS_COMPCLAUSE"},
+		{GCS_CURSORPOS, "GCS_CURSORPOS"},
+		{GCS_DELTASTART, "GCS_DELTASTART"},
+		{GCS_RESULTREADSTR, "GCS_RESULTREADSTR"},
+		{GCS_RESULTREADCLAUSE, "GCS_RESULTREADCLAUSE"},
+		{GCS_RESULTSTR, "GCS_RESULTSTR"},
+		{GCS_RESULTCLAUSE, "GCS_RESULTCLAUSE"},
+	}
 )
 
 func AdjustWindowRectEx(r *Rect, dwStyle uint32, bMenu int, dwExStyle uint32) {
@@ -570,6 +637,11 @@ func DestroyWindow(hwnd syscall.Handle) {
 
 func DispatchMessage(m *Msg) {
 	_DispatchMessage.Call(uintptr(unsafe.Pointer(m)))
+}
+
+func GetActiveWindow() syscall.Handle {
+	r, _, _ := _GetActiveWindow.Call()
+	return syscall.Handle(r)
 }
 
 func DwmExtendFrameIntoClientArea(hwnd syscall.Handle, margins Margins) error {
@@ -664,6 +736,11 @@ func GetSystemDPI() int {
 	}
 }
 
+func GetKeyboardLayout(idThread int32) HKL {
+	hkl, _, _ := _GetKeyboardLayout.Call(uintptr(idThread))
+	return HKL(hkl)
+}
+
 func GetKeyState(nVirtKey int32) int16 {
 	c, _, _ := _GetKeyState.Call(uintptr(nVirtKey))
 	return int16(c)
@@ -745,6 +822,39 @@ func ImmGetCompositionString(imc syscall.Handle, key int) string {
 	return string(utf16.Decode(u16))
 }
 
+type ImmCompAttr byte
+
+const (
+	ATTR_INPUT               = ImmCompAttr(0x00)
+	ATTR_INPUT_ERROR         = ImmCompAttr(0x04)
+	ATTR_TARGET_CONVERTED    = ImmCompAttr(0x01)
+	ATTR_CONVERTED           = ImmCompAttr(0x02)
+	ATTR_TARGET_NOTCONVERTED = ImmCompAttr(0x03)
+	ATTR_FIXEDCONVERTED      = ImmCompAttr(0x05)
+)
+
+func ImmGetCompositionAttributes(imc syscall.Handle, key int) []ImmCompAttr {
+	size, _, _ := _ImmGetCompositionString.Call(uintptr(imc), uintptr(key), 0, 0)
+	if int32(size) <= 0 {
+		return []ImmCompAttr{}
+	}
+	attrs := make([]ImmCompAttr, size)
+	_ImmGetCompositionString.Call(uintptr(imc), uintptr(key), uintptr(unsafe.Pointer(&attrs[0])), size)
+	return attrs
+}
+
+type ImmCompClauseLen int32
+
+func ImmGetCompositionClause(imc syscall.Handle, key int) []ImmCompClauseLen {
+	size, _, _ := _ImmGetCompositionString.Call(uintptr(imc), uintptr(key), 0, 0)
+	if int32(size) <= 0 {
+		return []ImmCompClauseLen{}
+	}
+	clLens := make([]ImmCompClauseLen, size/unsafe.Sizeof(int32(0)))
+	_ImmGetCompositionString.Call(uintptr(imc), uintptr(key), uintptr(unsafe.Pointer(&clLens[0])), size)
+	return clLens
+}
+
 func ImmGetCompositionValue(imc syscall.Handle, key int) int {
 	val, _, _ := _ImmGetCompositionString.Call(uintptr(imc), uintptr(key), 0, 0)
 	return int(int32(val))
@@ -768,6 +878,37 @@ func ImmSetCandidateWindow(imc syscall.Handle, x, y int) {
 		},
 	}
 	_ImmSetCandidateWindow.Call(uintptr(imc), uintptr(unsafe.Pointer(&f)))
+}
+
+func ImmSetExcludeCandidateWindow(imc syscall.Handle, x1, y1, x2, y2 int) {
+	f := CandidateForm{
+		dwStyle: CFS_EXCLUDE,
+		ptCurrentPos: Point{
+			X: int32(x1), Y: int32(y1),
+		},
+		rcArea: Rect{
+			Left: int32(x1), Top: int32(y1), Right: int32(x2), Bottom: int32(y2),
+		},
+	}
+	_ImmSetCandidateWindow.Call(uintptr(imc), uintptr(unsafe.Pointer(&f)))
+}
+
+func ImmCreateContext() syscall.Handle {
+	h, _, _ := _ImmCreateContext.Call()
+	return syscall.Handle(h)
+}
+
+func ImmAssociateContext(hwnd, imc syscall.Handle) syscall.Handle {
+	h, _, _ := _ImmAssociateContext.Call(uintptr(hwnd), uintptr(imc))
+	return syscall.Handle(h)
+}
+
+func ImmSetCompositionFont(imc syscall.Handle, lfHeight, lfQuality int) {
+	lf := LogFont{
+		LfHeight:  int32(lfHeight),
+		LfQuality: byte(lfQuality), // 5, //CLEARTYPE_QUALITY
+	}
+	_ImmSetCompositionFont.Call(uintptr(imc), uintptr(unsafe.Pointer(&lf)))
 }
 
 func SetWindowLong(hwnd syscall.Handle, idx uintptr, style uintptr) {
@@ -992,4 +1133,35 @@ func (p *WindowPlacement) Set(Left, Top, Right, Bottom int) {
 	p.rcNormalPosition.Top = int32(Top)
 	p.rcNormalPosition.Right = int32(Right)
 	p.rcNormalPosition.Bottom = int32(Bottom)
+}
+
+func CreateCaret(hwnd syscall.Handle, hBitmap syscall.Handle, nWidth, nHeight int) bool {
+	r, _, _ := _CreateCaret.Call(uintptr(hwnd), uintptr(hBitmap), uintptr(nWidth), uintptr(nHeight))
+	return r != 0
+}
+
+func SetCaretPos(x, y int) {
+	_SetCaretPos.Call(uintptr(x), uintptr(y))
+}
+
+func DestroyCaret() {
+	_DestroyCaret.Call()
+}
+
+func LGID(hkl HKL) uint {
+	return uint(hkl & 0xffff)
+}
+
+func PRIMARYLANGID(langId uint) uint16 {
+	return uint16(langId & 0x3ff)
+}
+
+func GcsStrs(flags uint) []string {
+	result := make([]string, 0, len(gcsMap))
+	for _, entry := range gcsMap {
+		if (flags & entry.value) != 0 {
+			result = append(result, entry.name)
+		}
+	}
+	return result
 }
