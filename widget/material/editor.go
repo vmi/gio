@@ -38,6 +38,7 @@ type EditorStyle struct {
 }
 
 func Editor(th *Theme, editor *widget.Editor, hint string) EditorStyle {
+	//editor.SetImeFont(th.Face, th.TextSize)
 	return EditorStyle{
 		Editor: editor,
 		Font: font.Font{

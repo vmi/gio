@@ -7,14 +7,25 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"gioui.org/font"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/unit"
 )
+
+type imeFont struct {
+	face font.Typeface
+	size unit.Sp
+}
 
 type editorState struct {
 	input.EditorState
-	compose     key.Range
-	isComposing bool
+	compose key.Range
+	imeFont *imeFont
+}
+
+func (e *editorState) SetImeFont(face font.Typeface, fontSize unit.Sp) {
+	e.imeFont = &imeFont{face, fontSize}
 }
 
 func (e *editorState) Replace(r key.Range, text string) {

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/font/gofont"
 	"gioui.org/gpu"
 	"gioui.org/internal/debug"
@@ -467,6 +468,11 @@ func (c *callbacks) SetEditorSnippet(r key.Range) {
 		return
 	}
 	c.w.driver.ProcessEvent(key.SnippetEvent(r))
+}
+
+func (c *callbacks) SetImeFont(face font.Typeface, size unit.Sp) {
+	editorState := c.EditorState()
+	editorState.SetImeFont(face, size)
 }
 
 func (w *Window) moveFocus(dir key.FocusDirection) {
